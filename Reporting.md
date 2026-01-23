@@ -79,12 +79,10 @@ Pipeline:
 
 ```
 proof_of_play_events
+        ↓        ↓
+dooh_report_hourly (append-only)
         ↓
-matched_playbacks (incremental window)
-        ↓
-dooh_playback_hourly (append-only)
-        ↓
-dooh_playback_daily (reporting source)
+dooh_report_daily (reporting source)
         ↓
 Reporting APIs
 
@@ -112,7 +110,7 @@ Key principles:
 #### Create Table
 
 ```sql
-CREATE TABLE dooh_playback_hourly (
+CREATE TABLE dooh_report_hourly (
     stat_date DATE NOT NULL,
     stat_hour TIMESTAMP NOT NULL,
     device_id TEXT NOT NULL,
@@ -142,7 +140,10 @@ CREATE TABLE dooh_playback_hourly (
     creative_length INT,
     creative_format TEXT,
 
-    uptime_pct NUMERIC
+    uptime_pct NUMERIC,
+    impressions INT,
+    completes INT,
+    play_seconds INT
 );
 
 ```
@@ -156,8 +157,9 @@ CREATE TABLE dooh_playback_hourly (
 #### Create Table
 
 ```sql
-CREATE TABLE dooh_playback_daily (
-    -- NOTE: Column list is identical to dooh_playback_hourly except `stat_hour`
+CREATE TABLE dooh_report_daily (
+    -- NOTE: Column list is identical to dooh_report_hourly except `stat_hour`
+    id BIGSERIAL  PRIMARY KEY,
     stat_date DATE NOT NULL,
     device_id TEXT NOT NULL,
     campaign_id TEXT NOT NULL,
@@ -180,8 +182,8 @@ CREATE TABLE dooh_playback_daily (
     resolution_height INT,
     orientation TEXT,
     address_type TEXT,
-    geo_latitude DOUBLE PRECISION,
-    geo_longitude DOUBLE PRECISION,
+    geo_latitude TEXT,
+    geo_longitude TEXT,
 
     campaign_name TEXT,
     campaign_status TEXT,
@@ -190,6 +192,7 @@ CREATE TABLE dooh_playback_daily (
     creative_length INT,
     creative_format TEXT
 );
+
 
 ```
 
@@ -202,16 +205,21 @@ CREATE TABLE dooh_playback_daily (
 #### Insert Query
 
 ```sql
-INSERT INTO dooh_playback_hourly (
+INSERT INTO dooh_report_hourly (
     stat_date,
     stat_hour,
+
     device_id,
     campaign_id,
     creative_id,
     playlist_id,
     slot_index,
-    started_at,
-    completed_at,
+
+    impressions,
+    completes,
+    play_seconds,
+
+    uptime_pct,
 
     device_name,
     partner_id,
@@ -230,54 +238,117 @@ INSERT INTO dooh_playback_hourly (
     cost_micro_amount,
 
     creative_length,
-    creative_format,
-
-    uptime_pct
+    creative_format
+)
+WITH pulse_expanded AS (
+    SELECT
+        DATE(sh.created_at) AS stat_date,
+        sh.device_id,
+        (p.pulse_elem ->> 'status') AS pulse_status
+    FROM screen_histories sh
+    CROSS JOIN LATERAL unnest(sh.pulses) p(pulse_elem)
+),
+uptime_calc AS (
+    SELECT
+        stat_date,
+        device_id,
+        COUNT(*) FILTER (WHERE pulse_status = 'ACTIVE')::NUMERIC
+        / NULLIF(COUNT(*), 0) * 100.0 AS uptime_pct
+    FROM pulse_expanded
+    GROUP BY stat_date, device_id
+),
+start_events AS (
+    SELECT DISTINCT ON (e.device_id, e."slotIndex", e."timestamp")
+        e.device_id,
+        e.campaign_id,
+        e.creative_id,
+        e.playlist_id,
+        e."slotIndex" AS slot_index,
+        e."timestamp" AS started_at
+    FROM proof_of_play_events e
+    WHERE lower(e.event) IN ('start', 'impression')
+      AND e."timestamp" >= now() - interval '1 hour'
+      AND e."timestamp" < now()
+    ORDER BY
+        e.device_id,
+        e."slotIndex",
+        e."timestamp",
+        CASE WHEN lower(e.event) = 'start' THEN 1 ELSE 2 END
+),
+matched_events AS (
+    SELECT
+        s.*,
+        (
+            SELECT c."timestamp"
+            FROM proof_of_play_events c
+            WHERE lower(c.event) = 'complete'
+              AND c.device_id = s.device_id
+              AND c."slotIndex" = s.slot_index
+              AND c."timestamp" >= s.started_at
+              AND c."timestamp" <= s.started_at + (COALESCE(get_creative_duration(s.creative_id), 60) + 10) * INTERVAL '1 second'
+            ORDER BY ABS(EXTRACT(EPOCH FROM (c."timestamp" - s.started_at)))
+            LIMIT 1
+        ) AS completed_at
+    FROM start_events s
 )
 SELECT
-    DATE(mp.started_at AT TIME ZONE 'Asia/Kolkata'),
-    DATE_TRUNC('hour', mp.started_at AT TIME ZONE 'Asia/Kolkata'),
+    DATE(m.started_at) AS stat_date,
+    DATE_TRUNC('hour', m.started_at) AS stat_hour,
 
-    mp.device_id,
-    mp.campaign_id,
-    mp.creative_id,
-    mp.playlist_id,
-    mp.slot_index,
-    mp.started_at,
-    mp.completed_at,
+    m.device_id,
+    m.campaign_id,
+    m.creative_id,
+    m.playlist_id,
+    m.slot_index,
 
-    d.name,
-    d.partner_id,
-    d.address_city,
-    d.screen_size_in_inch,
-    d.resolution_width,
-    d.resolution_height,
-    d.orientation,
-    d.address_type,
-    d.geo_latitude,
-    d.geo_longitude,
+    COUNT(*) AS impressions,
+    COUNT(m.completed_at) AS completes,
 
-    c.name,
-    c.status,
-    c."costType",
-    c.cost_micro_amount,
+    SUM(
+        CASE
+            WHEN m.completed_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM m.completed_at - m.started_at)
+            ELSE COALESCE(ca.duration, 0)
+        END
+    )::INT AS play_seconds,
 
-    ca.duration,
-    cf.type,
+    MAX(COALESCE(u.uptime_pct, 0.0)) AS uptime_pct,
 
-    COALESCE(u.uptime_pct, 0.0)
+    MAX(d.name) AS device_name,
+    MAX(d.partner_id),
+    MAX(d.address_city),
+    MAX(d.screen_size_in_inch),
+    MAX(d.resolution_width),
+    MAX(d.resolution_height),
+    MAX(d.orientation),
+    MAX(d.address_type),
+    MAX(d.geo_latitude),
+    MAX(d.geo_longitude),
 
-FROM matched_playbacks mp
-JOIN devices d ON d.id = mp.device_id
-JOIN campaigns c ON c.id = mp.campaign_id
-LEFT JOIN creative_assets ca ON ca.id = mp.creative_id
-LEFT JOIN creative_files cf ON cf.creative_asset_id = mp.creative_id
-LEFT JOIN uptime_calc u
-  ON u.device_id = mp.device_id
- AND u.stat_date = DATE(mp.started_at AT TIME ZONE 'Asia/Kolkata')
+    MAX(c.name) AS campaign_name,
+    MAX(c.status) AS campaign_status,
+    MAX(c."costType") AS cost_type,
+    MAX(c.cost_micro_amount),
 
-WHERE mp.started_at >= date_trunc('hour', now() - interval '1 hour')
-  AND mp.started_at <  date_trunc('hour', now());
+    MAX(ca.duration) AS creative_length,
+    MAX(cf.type) AS creative_format
+FROM matched_events m
+JOIN devices d ON d.id = m.device_id
+JOIN campaigns c ON c.id = m.campaign_id
+LEFT JOIN creative_assets ca ON ca.id = m.creative_id
+LEFT JOIN creative_files cf ON cf.creative_asset_id = m.creative_id
+LEFT JOIN uptime_calc u ON u.device_id = m.device_id
+  AND u.stat_date = DATE(m.started_at)
+GROUP BY
+    DATE(m.started_at),
+    DATE_TRUNC('hour', m.started_at),
+    m.device_id,
+    m.campaign_id,
+    m.creative_id,
+    m.playlist_id,
+    m.slot_index;
+
+
 
 ```
 
@@ -288,7 +359,7 @@ WHERE mp.started_at >= date_trunc('hour', now() - interval '1 hour')
 #### Insert Query
 
 ```sql
-INSERT INTO dooh_playback_daily (
+INSERT INTO dooh_report_daily (
     stat_date,
     device_id,
     campaign_id,
@@ -365,7 +436,7 @@ SELECT
     MAX(creative_length),
     MAX(creative_format)
 
-FROM dooh_playback_hourly
+FROM dooh_report_hourly
 WHERE stat_date = CURRENT_DATE - 1
 GROUP BY
     stat_date,
