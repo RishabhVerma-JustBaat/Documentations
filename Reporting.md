@@ -142,6 +142,7 @@ CREATE TABLE dooh_report_hourly (
     impressions INT,
     completes INT,
     play_seconds INT
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 ```
@@ -188,7 +189,8 @@ CREATE TABLE dooh_report_daily (
     cost_type TEXT,
     cost_micro_amount BIGINT,
     creative_length INT,
-    creative_format TEXT
+    creative_format TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 
