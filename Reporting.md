@@ -118,8 +118,6 @@ CREATE TABLE dooh_report_hourly (
     creative_id TEXT,
     playlist_id TEXT,
     slot_index INT,
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
 
     device_name TEXT,
     partner_id TEXT,
