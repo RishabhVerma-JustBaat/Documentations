@@ -127,8 +127,8 @@ CREATE TABLE dooh_report_hourly (
     resolution_height INT,
     orientation TEXT,
     address_type TEXT,
-    geo_latitude DOUBLE PRECISION,
-    geo_longitude DOUBLE PRECISION,
+    geo_latitude TEXT,
+    geo_longitude TEXT,
 
     campaign_name TEXT,
     campaign_status TEXT,
@@ -141,7 +141,7 @@ CREATE TABLE dooh_report_hourly (
     uptime_pct NUMERIC,
     impressions INT,
     completes INT,
-    play_seconds INT
+    play_seconds INT ,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
