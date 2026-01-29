@@ -190,7 +190,8 @@ CREATE TABLE dooh_report_daily (
     cost_micro_amount BIGINT,
     creative_length INT,
     creative_format TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    row_id TEXT
 );
 
 
@@ -359,87 +360,103 @@ GROUP BY
 #### Insert Query
 
 ```sql
+await prisma.$queryRawUnsafe(`
 INSERT INTO dooh_report_daily (
-                stat_date,
-                device_id,
-                campaign_id,
-                creative_id,
-                playlist_id,
-                slot_index,
-
-                impressions,
-                completes,
-                play_seconds,
-                uptime_pct,
-                cost,
-                active_campaigns,
-
-                device_name,
-                partner_id,
-                address_city,
-                screen_size_in_inch,
-                resolution_width,
-                resolution_height,
-                orientation,
-                address_type,
-                geo_latitude,
-                geo_longitude,
-
-                campaign_name,
-                campaign_status,
-                cost_type,
-                cost_micro_amount,
-                creative_length,
-                creative_format
-            )
+    stat_date,
+    device_id,
+    campaign_id,
+    creative_id,
+    playlist_id,
+    slot_index,
+    impressions,
+    completes,
+    play_seconds,
+    uptime_pct,
+    cost,
+    active_campaigns,
+    device_name,
+    partner_id,
+    address_city,
+    screen_size_in_inch,
+    resolution_width,
+    resolution_height,
+    orientation,
+    address_type,
+    geo_latitude,
+    geo_longitude,
+    campaign_name,
+    campaign_status,
+    cost_type,
+    cost_micro_amount,
+    creative_length,
+    creative_format,
+    row_id
+)
 SELECT
-                stat_date,
-                device_id,
-                campaign_id,
-                creative_id,
-                playlist_id,
-                slot_index,
+    stat_date,
+    device_id,
+    campaign_id,
+    creative_id,
+    playlist_id,
+    slot_index,
+    SUM(impressions) AS impressions,
+    SUM(completes) AS completes,
+    SUM(play_seconds)::INT AS play_seconds,
+    MAX(uptime_pct) AS uptime_pct,
+    MAX(cost_micro_amount) / 1000000.0 AS cost,
+    COUNT(DISTINCT campaign_id) FILTER (WHERE campaign_status = 'RUNNING') AS active_campaigns,
+    MAX(device_name),
+    MAX(partner_id),
+    MAX(address_city),
+    MAX(screen_size_in_inch),
+    MAX(resolution_width),
+    MAX(resolution_height),
+    MAX(orientation),
+    MAX(address_type),
+    MAX(geo_latitude),
+    MAX(geo_longitude),
+    MAX(campaign_name),
+    MAX(campaign_status),
+    MAX(cost_type),
+    MAX(cost_micro_amount),
+    MAX(creative_length),
+    MAX(creative_format),
+    stat_date || '_' || device_id || '_' || campaign_id || '_' || creative_id || '_' || playlist_id || '_' || slot_index AS row_id
+FROM dooh_report_hourly
+WHERE stat_date = CURRENT_DATE - 1
+GROUP BY
+    stat_date,
+    device_id,
+    campaign_id,
+    creative_id,
+    playlist_id,
+    slot_index
+ON CONFLICT(row_id) DO UPDATE
+SET
+    impressions = EXCLUDED.impressions,
+    completes = EXCLUDED.completes,
+    play_seconds = EXCLUDED.play_seconds,
+    uptime_pct = EXCLUDED.uptime_pct,
+    cost = EXCLUDED.cost,
+    active_campaigns = EXCLUDED.active_campaigns,
+    device_name = EXCLUDED.device_name,
+    partner_id = EXCLUDED.partner_id,
+    address_city = EXCLUDED.address_city,
+    screen_size_in_inch = EXCLUDED.screen_size_in_inch,
+    resolution_width = EXCLUDED.resolution_width,
+    resolution_height = EXCLUDED.resolution_height,
+    orientation = EXCLUDED.orientation,
+    address_type = EXCLUDED.address_type,
+    geo_latitude = EXCLUDED.geo_latitude,
+    geo_longitude = EXCLUDED.geo_longitude,
+    campaign_name = EXCLUDED.campaign_name,
+    campaign_status = EXCLUDED.campaign_status,
+    cost_type = EXCLUDED.cost_type,
+    cost_micro_amount = EXCLUDED.cost_micro_amount,
+    creative_length = EXCLUDED.creative_length,
+    creative_format = EXCLUDED.creative_format;
+`);
 
-               SUM(impressions) AS impressions,
-               SUM(completes) AS completes,
-
-                SUM(play_seconds
-                )::INT AS play_seconds,
-
-                MAX(uptime_pct) AS uptime_pct,
-
-                MAX(cost_micro_amount) / 1000000.0 AS cost,
-
-                COUNT(DISTINCT campaign_id)
-                    FILTER (WHERE campaign_status = 'RUNNING') AS active_campaigns,
-
-                MAX(device_name) as device_id,
-                MAX(partner_id) as partner_id,
-                MAX(address_city) as address_city,
-                MAX(screen_size_in_inch) as screen_size_in_inch,
-                MAX(resolution_width) as resolution_width,
-                MAX(resolution_height) as resolution_height,
-                MAX(orientation) as orientation,
-                MAX(address_type) as address_type,
-                MAX(geo_latitude) as geo_latitude,
-                MAX(geo_longitude) as geo_longitude,
-
-                MAX(campaign_name) as campaign_name,
-                MAX(campaign_status) as campaign_status,
-                MAX(cost_type) as cost_type,
-                MAX(cost_micro_amount) as cost_micro_amount,
-                MAX(creative_length) as creative_length,
-                MAX(creative_format) as creative_format
-
-            FROM dooh_report_hourly
-            WHERE stat_date = CURRENT_DATE - 1
-            GROUP BY
-                stat_date,
-                device_id,
-                campaign_id,
-                creative_id,
-                playlist_id,
-                slot_index;
 ```
 
 ----------
