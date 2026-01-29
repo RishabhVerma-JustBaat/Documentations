@@ -360,92 +360,86 @@ GROUP BY
 
 ```sql
 INSERT INTO dooh_report_daily (
-    stat_date,
-    device_id,
-    campaign_id,
-    creative_id,
-    playlist_id,
-    slot_index,
+                stat_date,
+                device_id,
+                campaign_id,
+                creative_id,
+                playlist_id,
+                slot_index,
 
-    impressions,
-    completes,
-    play_seconds,
-    uptime_pct,
-    cost,
-    active_campaigns,
+                impressions,
+                completes,
+                play_seconds,
+                uptime_pct,
+                cost,
+                active_campaigns,
 
-    device_name,
-    partner_id,
-    address_city,
-    screen_size_in_inch,
-    resolution_width,
-    resolution_height,
-    orientation,
-    address_type,
-    geo_latitude,
-    geo_longitude,
+                device_name,
+                partner_id,
+                address_city,
+                screen_size_in_inch,
+                resolution_width,
+                resolution_height,
+                orientation,
+                address_type,
+                geo_latitude,
+                geo_longitude,
 
-    campaign_name,
-    campaign_status,
-    cost_type,
-    cost_micro_amount,
-    creative_length,
-    creative_format
-)
+                campaign_name,
+                campaign_status,
+                cost_type,
+                cost_micro_amount,
+                creative_length,
+                creative_format
+            )
 SELECT
-    stat_date,
-    device_id,
-    campaign_id,
-    creative_id,
-    playlist_id,
-    slot_index,
+                stat_date,
+                device_id,
+                campaign_id,
+                creative_id,
+                playlist_id,
+                slot_index,
 
-    COUNT(*) AS impressions,
-    COUNT(completed_at) AS completes,
+               SUM(impressions) AS impressions,
+               SUM(completes) AS completes,
 
-    SUM(
-        CASE
-            WHEN completed_at IS NOT NULL
-              THEN EXTRACT(EPOCH FROM completed_at - started_at)
-            ELSE creative_length
-        END
-    )::INT AS play_seconds,
+                SUM(play_seconds
+                )::INT AS play_seconds,
 
-    MAX(uptime_pct) AS uptime_pct,
+                MAX(uptime_pct) AS uptime_pct,
 
-    SUM(cost_micro_amount) / 1000000.0 AS cost,
+                MAX(cost_micro_amount) / 1000000.0 AS cost,
 
-    COUNT(DISTINCT campaign_id)
-        FILTER (WHERE campaign_status = 'RUNNING') AS active_campaigns,
+                COUNT(DISTINCT campaign_id)
+                    FILTER (WHERE campaign_status = 'RUNNING') AS active_campaigns,
 
-    MAX(device_name),
-    MAX(partner_id),
-    MAX(address_city),
-    MAX(screen_size_in_inch),
-    MAX(resolution_width),
-    MAX(resolution_height),
-    MAX(orientation),
-    MAX(address_type),
-    MAX(geo_latitude),
-    MAX(geo_longitude),
+                MAX(device_name) as device_id,
+                MAX(partner_id) as partner_id,
+                MAX(address_city) as address_city,
+                MAX(screen_size_in_inch) as screen_size_in_inch,
+                MAX(resolution_width) as resolution_width,
+                MAX(resolution_height) as resolution_height,
+                MAX(orientation) as orientation,
+                MAX(address_type) as address_type,
+                MAX(geo_latitude) as geo_latitude,
+                MAX(geo_longitude) as geo_longitude,
 
-    MAX(campaign_name),
-    MAX(campaign_status),
-    MAX(cost_type),
-    MAX(cost_micro_amount),
-    MAX(creative_length),
-    MAX(creative_format)
+                MAX(campaign_name) as campaign_name,
+                MAX(campaign_status) as campaign_status,
+                MAX(cost_type) as cost_type,
+                MAX(cost_micro_amount) as cost_micro_amount,
+                MAX(creative_length) as creative_length,
+                MAX(creative_format) as creative_format
 
-FROM dooh_report_hourly
-WHERE stat_date = CURRENT_DATE - 1
-GROUP BY
-    stat_date,
-    device_id,
-    campaign_id,
-    creative_id,
-    playlist_id,
-    slot_index;
-
+            FROM dooh_report_hourly
+            WHERE stat_date = CURRENT_DATE - 1
+            GROUP BY
+                stat_date,
+                device_id,
+                campaign_id,
+                creative_id,
+                playlist_id,
+                slot_index;
 ```
 
 ----------
