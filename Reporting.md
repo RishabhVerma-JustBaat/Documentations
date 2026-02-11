@@ -479,3 +479,61 @@ WHERE stat_date BETWEEN '2026-01-01' AND '2026-01-22'
   AND creative_format = 'video';
 
 ```
+
+----------
+
+## 7. Important Operational Notes
+
+### 7.1 Timezone Handling
+
+- All timestamps across tables are stored in UTC
+- `stat_date` is in UTC
+- Only `stat_hour` is converted to IST
+
+### 7.2 Why Two Entries May Exist for the Same IST Hour
+
+- Cron runs every hour in UTC
+- IST = UTC + 5:30
+- Hour boundaries shift after conversion
+- Effective IST window becomes:
+  - X:30 → X+1:30
+
+Because of this:
+
+- Two UTC cron runs may contribute to the same IST hour
+- You may observe two entries
+- This is expected behavior due to timezone offset
+
+### 7.3 stat_hour Definition
+
+- `stat_hour` is derived from the START event timestamp
+- It represents the `created_at` of the start event
+- It is not based on impression/complete events
+- It is not based on cron execution time
+
+### 7.4 Event Counts May Be Lower Than SDK
+
+You may observe lower counts compared to raw SDK logs.
+
+Reasons:
+
+- SDK event lag
+- Strict hourly aggregation windows
+- Late-arriving events excluded
+- Deduplication prefers start over impression
+
+This is expected in distributed systems.
+
+### 7.5 Monitoring Raw Events (IST Based)
+
+Use this query to validate raw campaign events for an IST date:
+
+```sql
+SELECT event, count(*)
+FROM proof_of_play_events
+WHERE campaign_id = '1770459807733_VER2_TEST_JUSTBAAT_DIRECT_CAMPAIGN'
+  AND DATE(timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') = '2026-02-09'
+GROUP BY event;
+```
+
+This converts UTC → IST and helps reconcile raw events with aggregated data.
