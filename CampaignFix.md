@@ -88,3 +88,6 @@ UPDATE playlist_items pi
 Re-run the check query from step 1.  
 Expected: `bad_playlist_item_count = 0` for all intended pairs.
 
+
+FIRST CAMPAIGN -- > 1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN
+
