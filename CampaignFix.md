@@ -170,3 +170,86 @@ GROUP BY campaign_id
 ORDER BY campaign_id;
 ```
 
+## 5) DOOH Report Daily (`dooh_report_daily`)
+
+Apply the same campaign-to-creative correction on `dooh_report_daily`.
+
+### 5.1 Pre-check counts
+
+```sql
+SELECT
+  campaign_id,
+  COUNT(*)::bigint AS bad_rows
+FROM dooh_report_daily
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN'
+GROUP BY campaign_id
+ORDER BY campaign_id;
+```
+
+### 5.2 Backup target rows
+
+```sql
+CREATE TABLE IF NOT EXISTS dooh_report_daily_dooh_jagran_backup AS
+SELECT *
+FROM dooh_report_daily
+WHERE false;
+
+INSERT INTO dooh_report_daily_dooh_jagran_backup
+SELECT *
+FROM dooh_report_daily
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN';
+```
+
+Nearly 5k enteries
+
+### 5.3 Update bad rows (campaign -> correct creative)
+
+```sql
+WITH campaign_creative_map(campaign_id, new_creative_id) AS (
+  VALUES
+    ('1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1764852429441_DOOH_JAGRAN_ASSET'),
+    ('1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481200090_DOOH_JAGRAN_ASSET'),
+    ('1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481246799_DOOH_JAGRAN_ASSET'),
+    ('1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481304222_DOOH_JAGRAN_ASSET'),
+    ('1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1770188095996_DOOH_JAGRAN_ASSET')
+)
+UPDATE dooh_report_daily drd
+SET creative_id = m.new_creative_id
+FROM campaign_creative_map m
+WHERE drd.campaign_id = m.campaign_id
+  AND drd.creative_id = 'DOOH_JAGRAN';
+```
+
+### 5.4 Verify after update
+
+```sql
+SELECT
+  campaign_id,
+  COUNT(*)::bigint AS remaining_bad_rows
+FROM dooh_report_daily
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN'
+GROUP BY campaign_id
+ORDER BY campaign_id;
+```
+
