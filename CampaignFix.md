@@ -88,6 +88,85 @@ UPDATE playlist_items pi
 Re-run the check query from step 1.  
 Expected: `bad_playlist_item_count = 0` for all intended pairs.
 
+## 4) Proof Of Play Events (`proof_of_play_events`)
 
-FIRST CAMPAIGN -- > 1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN
+Large table note: you mentioned ~25M rows in scope.  
+Update only rows where `creative_id = 'DOOH_JAGRAN'` and set to the correct campaign creative.
+
+### 4.1 Pre-check counts
+
+```sql
+SELECT
+  campaign_id,
+  COUNT(*)::bigint AS bad_rows
+FROM proof_of_play_events
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN'
+```
+
+nearly 25M rows 
+
+### 4.2 Backup target rows
+
+```sql
+CREATE TABLE IF NOT EXISTS proof_of_play_events_dooh_jagran_backup AS
+SELECT *
+FROM proof_of_play_events
+WHERE false;
+
+INSERT INTO proof_of_play_events_dooh_jagran_backup
+SELECT *
+FROM proof_of_play_events
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN';
+```
+
+### 4.3 Update bad POP rows (campaign → correct creative)
+
+```sql
+WITH campaign_creative_map(campaign_id, new_creative_id) AS (
+  VALUES
+    ('1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1764852429441_DOOH_JAGRAN_ASSET'),
+    ('1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481200090_DOOH_JAGRAN_ASSET'),
+    ('1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481246799_DOOH_JAGRAN_ASSET'),
+    ('1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1768481304222_DOOH_JAGRAN_ASSET'),
+    ('1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN', '1770188095996_DOOH_JAGRAN_ASSET')
+)
+UPDATE proof_of_play_events poe
+SET creative_id = m.new_creative_id
+FROM campaign_creative_map m
+WHERE poe.campaign_id = m.campaign_id
+  AND poe.creative_id = 'DOOH_JAGRAN';
+```
+
+### 4.4 Verify after POP update
+
+```sql
+SELECT
+  campaign_id,
+  COUNT(*)::bigint AS remaining_bad_rows
+FROM proof_of_play_events
+WHERE campaign_id IN (
+  '1765262250202_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481379635_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768481866818_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1768482110926_DOOH_JAGRAN_DIRECT_CAMPAIGN',
+  '1770188126394_DOOH_JAGRAN_DIRECT_CAMPAIGN'
+)
+AND creative_id = 'DOOH_JAGRAN'
+GROUP BY campaign_id
+ORDER BY campaign_id;
+```
 
